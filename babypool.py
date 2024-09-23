@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from github import Github
 from github import GithubException
+import io
 
 # GitHub repository details
 GITHUB_TOKEN = st.secrets["github"]["GITHUB_TOKEN"]
@@ -19,7 +20,7 @@ repo = g.get_repo(REPO_NAME)
 def load_predictions():
     try:
         content = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
-        df = pd.read_csv(pd.compat.StringIO(content.decoded_content.decode()))
+        df = pd.read_csv(io.StringIO(content.decoded_content.decode()))
         st.sidebar.write(f"Loaded {len(df)} predictions")
         return df
     except Exception as e:
@@ -28,23 +29,35 @@ def load_predictions():
                                      'Aoife Gender', 'Aoife Weight', 'Aoife Hair', 'Aoife Date',
                                      'Born First', 'Combined Weight', 'Total Length', 'Submission Time'])
 
-# Function to save predictions
+# Function to save prediction
 def save_prediction(data):
-    df = load_predictions()
-    new_df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
-    
-    csv_buffer = new_df.to_csv(index=False)
-    
     try:
-        contents = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
-        repo.update_file(FILE_PATH, f"Update predictions - {datetime.now()}", csv_buffer, contents.sha, branch=BRANCH_NAME)
-        st.sidebar.success(f"Saved prediction. Total predictions: {len(new_df)}")
-    except GithubException as e:
-        if e.status == 404:  # File not found, create it
-            repo.create_file(FILE_PATH, f"Create predictions file - {datetime.now()}", csv_buffer, branch=BRANCH_NAME)
-            st.sidebar.success("Created new predictions file")
-        else:
-            st.sidebar.error(f"Error saving prediction: {e}")
+        # Convert the new prediction to a DataFrame
+        new_df = pd.DataFrame([data])
+        
+        # Convert DataFrame to CSV string
+        csv_string = new_df.to_csv(index=False, header=False)
+        
+        try:
+            # Try to get the existing file
+            contents = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
+            
+            # Append the new data to the existing file
+            updated_content = contents.decoded_content.decode() + '\n' + csv_string
+            
+            # Update the file in the repository
+            repo.update_file(FILE_PATH, f"Append prediction - {datetime.now()}", updated_content, contents.sha, branch=BRANCH_NAME)
+        except GithubException as e:
+            if e.status == 404:  # File not found, create it
+                # If the file doesn't exist, create it with headers and the new data
+                headers = ','.join(new_df.columns) + '\n'
+                repo.create_file(FILE_PATH, f"Create predictions file - {datetime.now()}", headers + csv_string, branch=BRANCH_NAME)
+            else:
+                raise e
+        
+        st.sidebar.success("Saved prediction successfully")
+    except Exception as e:
+        st.sidebar.error(f"Error saving prediction: {e}")
 
 # Streamlit app
 st.title("Baby Gift Pool: Steph and Aoife")
@@ -52,7 +65,7 @@ st.title("Baby Gift Pool: Steph and Aoife")
 st.write("""
 ## Welcome to the Baby Gift Pool for Steph and Aoife!
 
-We're excited to celebrate the upcoming arrivals of two beautiful babies! 
+We're excited to celebrate the upcoming arrivals of two  babies! 
 Steph and Aoife are both due on October 31st, and we're organizing this fundraiser 
 to show our love and support by gifting them something special for their new additions.
 
