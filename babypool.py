@@ -20,59 +20,57 @@ def load_predictions():
     try:
         content = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
         df = pd.read_csv(pd.compat.StringIO(content.decoded_content.decode()))
-    except:
-        df = pd.DataFrame(columns=['Name', 'Steph Gender', 'Steph Weight', 'Steph Hair', 'Steph Date',
-                                   'Aoife Gender', 'Aoife Weight', 'Aoife Hair', 'Aoife Date',
-                                   'Born First', 'Combined Weight', 'Total Length', 'Submission Time'])
-    return df
+        return df
+    except Exception as e:
+        st.error(f"Error loading predictions: {e}")
+        return pd.DataFrame(columns=['Name', 'Steph Gender', 'Steph Weight', 'Steph Hair', 'Steph Date',
+                                     'Aoife Gender', 'Aoife Weight', 'Aoife Hair', 'Aoife Date',
+                                     'Born First', 'Combined Weight', 'Total Length', 'Submission Time'])
 
 # Function to save predictions
 def save_prediction(data):
     df = load_predictions()
-    df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
+    new_df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
     
-    csv_buffer = df.to_csv(index=False)
+    csv_buffer = new_df.to_csv(index=False)
     
-    branch = repo.get_branch(BRANCH_NAME)
-    current_commit_sha = branch.commit.sha
-
-    blob = repo.create_git_blob(csv_buffer, "utf-8")
-    element = InputGitTreeElement(path=FILE_PATH, mode='100644', type='blob', sha=blob.sha)
-
-    base_tree = repo.get_git_tree(sha=current_commit_sha)
-    tree = repo.create_git_tree([element], base_tree)
-
-    parent = repo.get_git_commit(sha=current_commit_sha)
-    commit = repo.create_git_commit(f"Update predictions - {datetime.now()}", tree, [parent])
-
-    ref = repo.get_git_ref(f"heads/{BRANCH_NAME}")
-    ref.edit(sha=commit.sha)
+    try:
+        contents = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
+        repo.update_file(FILE_PATH, f"Update predictions - {datetime.now()}", csv_buffer, contents.sha, branch=BRANCH_NAME)
+    except Exception as e:
+        st.error(f"Error saving prediction: {e}")
+        try:
+            repo.create_file(FILE_PATH, f"Create predictions file - {datetime.now()}", csv_buffer, branch=BRANCH_NAME)
+        except Exception as e:
+            st.error(f"Error creating predictions file: {e}")
 
 # Streamlit app
-st.title("Baby Gift Pool: Steph and Aoife")
+st.title("Baby Fundraiser Pool: Steph and Aoife")
 
 st.write("""
-## Welcome to the Baby Gift Pool for Steph and Aoife!
+## Welcome to the Baby Fundraiser Pool for Steph and Aoife!
 
-We're excited to celebrate the upcoming arrivals of the two babies! 
-Steph and Aoife are both due on October 31st, and we're organizing this
-to show our  support by gifting them something special for their new additions.
+We're excited to celebrate the upcoming arrivals of two beautiful babies! 
+Steph and Aoife are both due on October 31st, and we're organizing this fundraiser 
+to show our love and support by gifting them something special for their new additions.
 
 ### How it works:
 1. Make a donation to our PayPal pool: [https://www.paypal.com/pools/c/98eafrmTSv](https://www.paypal.com/pools/c/98eafrmTSv)
 2. Fill out the form below with your predictions
-3. The person with the most accurate predictions wins a trick or treat!
+3. The person with the most accurate predictions wins a prize!
 
-All proceeds will go towards or towards purchasing thoughtful presents for both Steph and Aoife's babies. 
-Let's come together to make this a memorable celebration for them!
+All proceeds will go towards purchasing thoughtful presents for both Steph and Aoife's babies. 
+Let's come together to make this a memorable celebration for our friends!
 
 **Remember: This is a fun way to raise money for gifts. No actual betting or gambling is involved.**
 """)
 
 st.subheader("Your Predictions")
 
+# Input user's name
 user_name = st.text_input("Your Name")
 
+# Create separate forms for each mother
 col1, col2 = st.columns(2)
 
 with col1:
@@ -106,11 +104,11 @@ if st.button("Submit Predictions"):
             'Steph Gender': steph_gender,
             'Steph Weight': steph_weight,
             'Steph Hair': steph_hair,
-            'Steph Date': steph_date,
+            'Steph Date': str(steph_date),
             'Aoife Gender': aoife_gender,
             'Aoife Weight': aoife_weight,
             'Aoife Hair': aoife_hair,
-            'Aoife Date': aoife_date,
+            'Aoife Date': str(aoife_date),
             'Born First': born_first,
             'Combined Weight': combined_weight,
             'Total Length': total_length,
@@ -124,6 +122,7 @@ if st.button("Submit Predictions"):
     else:
         st.error("Please enter your name before submitting.")
 
+# Display current predictions
 st.subheader("Current Predictions")
 current_predictions = load_predictions()
 st.dataframe(current_predictions)
@@ -133,6 +132,7 @@ st.markdown("""
 For any questions or issues, please contact: mark.kirkpatrick@aecom.com
 """)
 
+# Add a download button for the predictions
 csv = current_predictions.to_csv(index=False)
 st.download_button(
     label="Download Predictions CSV",
