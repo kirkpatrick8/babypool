@@ -5,7 +5,7 @@ from github import Github
 from github import InputGitTreeElement
 
 # GitHub repository details
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+GITHUB_TOKEN = st.secrets["github"]["GITHUB_TOKEN"]
 REPO_NAME = "kirkpatrick8/babypool"
 BRANCH_NAME = "main"
 FILE_PATH = "predictions.csv"
