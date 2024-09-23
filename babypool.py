@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from github import Github
-from github import InputGitTreeElement
+from github import GithubException
 
 # GitHub repository details
 GITHUB_TOKEN = st.secrets["github"]["GITHUB_TOKEN"]
@@ -15,14 +15,15 @@ g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
 # Function to load existing predictions
-@st.cache_data
+@st.cache_data(ttl=60)  # Cache for 60 seconds
 def load_predictions():
     try:
         content = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
         df = pd.read_csv(pd.compat.StringIO(content.decoded_content.decode()))
+        st.sidebar.write(f"Loaded {len(df)} predictions")
         return df
     except Exception as e:
-        st.error(f"Error loading predictions: {e}")
+        st.sidebar.error(f"Error loading predictions: {e}")
         return pd.DataFrame(columns=['Name', 'Steph Gender', 'Steph Weight', 'Steph Hair', 'Steph Date',
                                      'Aoife Gender', 'Aoife Weight', 'Aoife Hair', 'Aoife Date',
                                      'Born First', 'Combined Weight', 'Total Length', 'Submission Time'])
@@ -37,18 +38,19 @@ def save_prediction(data):
     try:
         contents = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
         repo.update_file(FILE_PATH, f"Update predictions - {datetime.now()}", csv_buffer, contents.sha, branch=BRANCH_NAME)
-    except Exception as e:
-        st.error(f"Error saving prediction: {e}")
-        try:
+        st.sidebar.success(f"Saved prediction. Total predictions: {len(new_df)}")
+    except GithubException as e:
+        if e.status == 404:  # File not found, create it
             repo.create_file(FILE_PATH, f"Create predictions file - {datetime.now()}", csv_buffer, branch=BRANCH_NAME)
-        except Exception as e:
-            st.error(f"Error creating predictions file: {e}")
+            st.sidebar.success("Created new predictions file")
+        else:
+            st.sidebar.error(f"Error saving prediction: {e}")
 
 # Streamlit app
-st.title("Baby Fundraiser Pool: Steph and Aoife")
+st.title("Baby Gift Pool: Steph and Aoife")
 
 st.write("""
-## Welcome to the Baby Fundraiser Pool for Steph and Aoife!
+## Welcome to the Baby Gift Pool for Steph and Aoife!
 
 We're excited to celebrate the upcoming arrivals of two beautiful babies! 
 Steph and Aoife are both due on October 31st, and we're organizing this fundraiser 
@@ -116,9 +118,11 @@ if st.button("Submit Predictions"):
         }
         
         save_prediction(new_prediction)
-        
         st.success("Thank you for your predictions! Your submission has been saved.")
         st.info("Remember to make your donation if you haven't already!")
+        
+        # Force refresh of predictions
+        st.cache_data.clear()
     else:
         st.error("Please enter your name before submitting.")
 
