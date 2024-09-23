@@ -33,10 +33,10 @@ def save_to_csv():
     predictions = pd.read_sql_query("SELECT * FROM predictions", conn)
     predictions.to_csv('predictions.csv', index=False)
 
-st.title("Baby Fundraiser Pool: Steph and Aoife")
+st.title("Baby Gift Pool: Steph and Aoife")
 
 st.write("""
-## Welcome to the Baby Fundraiser Pool for Steph and Aoife!
+## Welcome to the Baby Gift Pool for Steph and Aoife!
 
 We're excited to celebrate the upcoming arrivals of two beautiful babies! 
 Steph and Aoife are both due on October 31st, and we're organizing this fundraiser 
@@ -45,9 +45,9 @@ to show our love and support by gifting them something special for their new add
 ### How it works:
 1. Make a donation to our PayPal pool: [https://www.paypal.com/pools/c/98eafrmTSv](https://www.paypal.com/pools/c/98eafrmTSv)
 2. Fill out the form below with your predictions
-3. The person with the most accurate predictions wins a prize!
+3. The person with the most accurate predictions wins a trick or treat!
 
-All proceeds will go towards purchasing thoughtful presents for both Steph and Aoife's babies. 
+All proceeds will go towards both Steph and Aoife. 
 Let's come together to make this a memorable celebration for our friends!
 
 **Remember: This is a fun way to raise money for gifts. No actual betting or gambling is involved.**
