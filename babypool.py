@@ -49,7 +49,7 @@ def save_prediction(data):
     ref.edit(sha=commit.sha)
 
 # Streamlit app
-st.title("Baby Fundraiser Pool: Steph and Aoife")
+st.title("Baby Gift Pool: Steph and Aoife")
 
 st.write("""
 ## Welcome to the Baby Gift Pool for Steph and Aoife!
