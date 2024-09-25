@@ -72,7 +72,7 @@ to show our love and support by gifting them something special for their new add
 ### How it works:
 1. Make a donation to our PayPal pool: [https://www.paypal.com/pools/c/98eafrmTSv](https://www.paypal.com/pools/c/98eafrmTSv)
 2. Fill out the form below with your predictions
-3. The person with the most accurate predictions wins a prize!
+3. The person with the most accurate predictions wins a trick or treat!
 
 All proceeds will go towards purchasing thoughtful presents for both Steph and Aoife's babies. 
 Let's come together to make this a memorable celebration for our friends!
