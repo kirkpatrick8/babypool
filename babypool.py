@@ -1,159 +1,391 @@
 import streamlit as st
 import pandas as pd
+import folium
+from streamlit_folium import st_folium
+import random
+import time
 from datetime import datetime
 from github import Github
 from github import GithubException
+import json
 import io
 
-# GitHub repository details
+# Page config
+st.set_page_config(page_title="Belfast 12 Pubs of Christmas", page_icon="🍺", layout="wide")
+
+# Custom CSS for modal and styling
+st.markdown("""
+    <style>
+    .modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        z-index: 1000;
+    }
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 999;
+    }
+    .stProgress .st-bo { background-color: #ff4b4b; }
+    .stProgress .st-bp { background-color: #28a745; }
+    .achievement {
+        padding: 10px;
+        margin: 5px;
+        border-radius: 5px;
+        background: linear-gradient(45deg, #4CAF50, #45a049);
+        color: white;
+        margin-bottom: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# GitHub configuration
 GITHUB_TOKEN = st.secrets["github"]["GITHUB_TOKEN"]
-REPO_NAME = "kirkpatrick8/babypool"
+REPO_NAME = st.secrets["github"]["REPO_NAME"]
 BRANCH_NAME = "main"
-FILE_PATH = "predictions.csv"
+DATA_FILE = "pub_crawl_data.json"
 
 # Initialize GitHub client
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-# Function to load existing predictions
-@st.cache_data(ttl=60)  # Cache for 60 seconds
-def load_predictions():
+# Constants
+PUBS_DATA = {
+    'name': [
+        "Lavery's", "The Points", "Sweet Afton", "Kelly's Cellars",
+        "Whites Tavern", "The Deer's Head", "The John Hewitt", "Duke of York",
+        "The Harp Bar", "The Dirty Onion", "Thirsty Goat", "Ulster Sports Club"
+    ],
+    'latitude': [
+        54.589539, 54.591556, 54.595067, 54.599553, 54.600033, 54.601439,
+        54.601928, 54.601803, 54.602000, 54.601556, 54.601308, 54.600733
+    ],
+    'longitude': [
+        -5.934469, -5.933333, -5.932894, -5.932236, -5.928497, -5.930294,
+        -5.928617, -5.927442, -5.927058, -5.926673, -5.926417, -5.925219
+    ],
+    'rules': [
+        "Christmas Jumpers Required", "Last Names Only", "No Swearing Challenge",
+        "Power Hour (Down Drink in 2-3 Gulps)", "No Phones & Drink with Left Hand Only",
+        "Must Speak in Different Accents", "Different Drink Type Required",
+        "Must Bow Before Taking a Drink", "Double Parked",
+        "The Arm Pub - Drink from Someone Else's Arm",
+        "No First Names & Photo Challenge", "Buddy System - Final Challenge"
+    ]
+}
+
+PUNISHMENTS = [
+    "Buy Mark a Drink", "Irish dance for 30 seconds", "Tell an embarrassing story",
+    "Down your drink", "Add a shot to your next drink", "Sing a Christmas carol",
+    "Switch drinks with someone", "No phone for next 2 pubs", 
+    "Wear your jumper inside out", "Give someone your drink",
+    "Talk in an accent for 10 mins", "Do 10 jumping jacks"
+]
+
+ACHIEVEMENTS = {
+    'first_pub': {'name': 'First Timer', 'desc': 'Complete your first pub', 'points': 100},
+    'halfway': {'name': 'Halfway Hero', 'desc': 'Complete 6 pubs', 'points': 250},
+    'finisher': {'name': 'Challenge Champion', 'desc': 'Complete all 12 pubs', 'points': 500},
+    'rule_breaker': {'name': 'Rule Breaker', 'desc': 'Get punished 3 times', 'points': 150},
+    'speed_demon': {'name': 'Speed Demon', 'desc': 'Complete 3 pubs in under 90 minutes', 'points': 300},
+}
+
+# Data management functions
+@st.cache_data(ttl=60)
+def load_data():
+    """Load data from GitHub"""
     try:
-        content = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
-        df = pd.read_csv(io.StringIO(content.decoded_content.decode()))
-        st.sidebar.write(f"Loaded {len(df)} predictions")
-        return df
+        content = repo.get_contents(DATA_FILE, ref=BRANCH_NAME)
+        return json.loads(content.decoded_content.decode())
     except Exception as e:
-        st.sidebar.error(f"Error loading predictions: {e}")
-        return pd.DataFrame(columns=['Name', 'Steph Gender', 'Steph Weight', 'Steph Hair', 'Steph Date',
-                                     'Aoife Gender', 'Aoife Weight', 'Aoife Hair', 'Aoife Date',
-                                     'Born First', 'Combined Weight', 'Total Length', 'Submission Time'])
+        st.sidebar.error(f"Error loading data: {e}")
+        return {'participants': {}, 'punishments': [], 'achievements': {}}
 
-# Function to save prediction
-def save_prediction(data):
+def save_data(data):
+    """Save data to GitHub"""
     try:
-        # Convert the new prediction to a DataFrame
-        new_df = pd.DataFrame([data])
+        content = repo.get_contents(DATA_FILE, ref=BRANCH_NAME)
+        repo.update_file(
+            DATA_FILE,
+            f"Update data - {datetime.now()}",
+            json.dumps(data, indent=2),
+            content.sha,
+            branch=BRANCH_NAME
+        )
+    except GithubException as e:
+        if e.status == 404:
+            repo.create_file(
+                DATA_FILE,
+                f"Create data file - {datetime.now()}",
+                json.dumps(data, indent=2),
+                branch=BRANCH_NAME
+            )
+        else:
+            raise e
+
+# Initialize or load session state
+if 'data' not in st.session_state:
+    st.session_state.data = load_data()
+
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+
+def name_entry_modal():
+    """Display modal for name entry"""
+    if st.session_state.current_user is None:
+        st.markdown("""
+            <div class="overlay"></div>
+            <div class="modal">
+                <h2>Welcome to the Belfast 12 Pubs of Christmas! 🎄</h2>
+                <p>Enter your name to begin the challenge:</p>
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Convert DataFrame to CSV string
-        csv_string = new_df.to_csv(index=False, header=False)
+        name = st.text_input("Your Name", key="name_input")
+        if name:
+            if name not in st.session_state.data['participants']:
+                st.session_state.data['participants'][name] = {
+                    'start_time': datetime.now().isoformat(),
+                    'current_pub': 0,
+                    'completed_pubs': [],
+                    'points': 0,
+                    'rule_breaks': 0,
+                    'achievements': []
+                }
+                save_data(st.session_state.data)
+            st.session_state.current_user = name
+            st.rerun()
+
+def check_achievements(name):
+    """Check and award achievements"""
+    participant = st.session_state.data['participants'][name]
+    achievements = participant.get('achievements', [])
+    pubs_completed = len(participant['completed_pubs'])
+    
+    # First pub completion
+    if pubs_completed == 1 and 'first_pub' not in achievements:
+        award_achievement(name, 'first_pub')
         
-        try:
-            # Try to get the existing file
-            contents = repo.get_contents(FILE_PATH, ref=BRANCH_NAME)
-            
-            # Append the new data to the existing file
-            updated_content = contents.decoded_content.decode() + '\n' + csv_string
-            
-            # Update the file in the repository
-            repo.update_file(FILE_PATH, f"Append prediction - {datetime.now()}", updated_content, contents.sha, branch=BRANCH_NAME)
-        except GithubException as e:
-            if e.status == 404:  # File not found, create it
-                # If the file doesn't exist, create it with headers and the new data
-                headers = ','.join(new_df.columns) + '\n'
-                repo.create_file(FILE_PATH, f"Create predictions file - {datetime.now()}", headers + csv_string, branch=BRANCH_NAME)
-            else:
-                raise e
+    # Halfway achievement
+    if pubs_completed >= 6 and 'halfway' not in achievements:
+        award_achievement(name, 'halfway')
         
-        st.sidebar.success("Saved prediction successfully")
-    except Exception as e:
-        st.sidebar.error(f"Error saving prediction: {e}")
-
-# Streamlit app
-st.title("Baby Gift Pool: Steph and Aoife")
-
-st.write("""
-## Welcome to the Baby Gift Pool for Steph and Aoife!
-
-We're excited to celebrate the upcoming arrivals of two  babies! 
-Steph and Aoife are both due on October 31st, and we're organizing this fundraiser 
-to show our love and support by gifting them something special for their new additions.
-
-### How it works:
-1. Make a donation to our PayPal pool: [https://www.paypal.com/pools/c/98eafrmTSv](https://www.paypal.com/pools/c/98eafrmTSv)
-2. Fill out the form below with your predictions
-3. The person with the most accurate predictions wins a trick or treat!
-
-All proceeds will go towards purchasing thoughtful presents for both Steph and Aoife's babies. 
-Let's come together to make this a memorable celebration for our friends!
-
-**Remember: This is a fun way to raise money for gifts. No actual betting or gambling is involved.**
-""")
-
-st.subheader("Your Predictions")
-
-# Input user's name
-user_name = st.text_input("Your Name")
-
-# Create separate forms for each mother
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Steph's Baby")
-    steph_gender = st.selectbox("Gender (Steph's baby)", ["Boy", "Girl"])
-    steph_weight = st.number_input("Weight in pounds (Steph's baby)", min_value=4.5, max_value=11.0, value=7.5, step=0.1)
-    steph_hair = st.selectbox("Hair Color (Steph's baby)", ["Blonde", "Brown", "Black", "Red", "No hair"])
-    steph_date = st.date_input("Birth Date (Steph's baby)", datetime(2024, 10, 31))
-
-with col2:
-    st.subheader("Aoife's Baby")
-    aoife_gender = st.selectbox("Gender (Aoife's baby)", ["Boy", "Girl"])
-    aoife_weight = st.number_input("Weight in pounds (Aoife's baby)", min_value=4.5, max_value=11.0, value=7.5, step=0.1)
-    aoife_hair = st.selectbox("Hair Color (Aoife's baby)", ["Blonde", "Brown", "Black", "Red", "No hair"])
-    aoife_date = st.date_input("Birth Date (Aoife's baby)", datetime(2024, 10, 31))
-
-born_first = st.radio("Who will be born first?", ["Steph's baby", "Aoife's baby", "Same day"])
-
-combined_weight = st.number_input("Combined weight of both babies (pounds)", min_value=9.0, max_value=22.0, value=15.0, step=0.1)
-total_length = st.number_input("Total length of both babies (inches)", min_value=31.5, max_value=47.0, value=39.0, step=0.5)
-
-st.markdown("""
-### Don't forget to donate!
-Please visit our [PayPal pool](https://www.paypal.com/pools/c/98eafrmTSv) to make your donation before submitting your predictions.
-""")
-
-if st.button("Submit Predictions"):
-    if user_name:
-        new_prediction = {
-            'Name': user_name,
-            'Steph Gender': steph_gender,
-            'Steph Weight': steph_weight,
-            'Steph Hair': steph_hair,
-            'Steph Date': str(steph_date),
-            'Aoife Gender': aoife_gender,
-            'Aoife Weight': aoife_weight,
-            'Aoife Hair': aoife_hair,
-            'Aoife Date': str(aoife_date),
-            'Born First': born_first,
-            'Combined Weight': combined_weight,
-            'Total Length': total_length,
-            'Submission Time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+    # Completion achievement
+    if pubs_completed == 12 and 'finisher' not in achievements:
+        award_achievement(name, 'finisher')
         
-        save_prediction(new_prediction)
-        st.success("Thank you for your predictions! Your submission has been saved.")
-        st.info("Remember to make your donation if you haven't already!")
+    # Rule breaker achievement
+    if participant['rule_breaks'] >= 3 and 'rule_breaker' not in achievements:
+        award_achievement(name, 'rule_breaker')
+
+def award_achievement(name, achievement_id):
+    """Award an achievement to a participant"""
+    achievement = ACHIEVEMENTS[achievement_id]
+    participant = st.session_state.data['participants'][name]
+    
+    if 'achievements' not in participant:
+        participant['achievements'] = []
         
-        # Force refresh of predictions
-        st.cache_data.clear()
+    participant['achievements'].append(achievement_id)
+    participant['points'] += achievement['points']
+    
+    save_data(st.session_state.data)
+    
+    st.balloons()
+    st.success(f"🏆 Achievement Unlocked: {achievement['name']}! (+{achievement['points']} points)")
+
+def show_achievements(name):
+    """Display achievements for a participant"""
+    participant = st.session_state.data['participants'][name]
+    achievements = participant.get('achievements', [])
+    
+    st.subheader("🏆 Your Achievements")
+    
+    if achievements:
+        for ach_id in achievements:
+            ach = ACHIEVEMENTS[ach_id]
+            st.markdown(f"""
+                <div class="achievement">
+                    <h3>{ach['name']}</h3>
+                    <p>{ach['desc']}</p>
+                    <small>+{ach['points']} points</small>
+                </div>
+            """, unsafe_allow_html=True)
     else:
-        st.error("Please enter your name before submitting.")
+        st.info("Complete challenges to earn achievements!")
 
-# Display current predictions
-st.subheader("Current Predictions")
-current_predictions = load_predictions()
-st.dataframe(current_predictions)
+def show_progress(name):
+    """Show progress for current participant"""
+    participant = st.session_state.data['participants'][name]
+    
+    st.header(f"Progress Tracker for {name}")
+    
+    # Progress bar and stats
+    progress = len(participant['completed_pubs'])
+    st.progress(progress/12)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Pubs Completed", f"{progress}/12")
+    with col2:
+        st.metric("Points", participant['points'])
+    with col3:
+        st.metric("Rule Breaks", participant['rule_breaks'])
+    
+    if participant['current_pub'] < 12:
+        current_pub = PUBS_DATA['name'][participant['current_pub']]
+        current_rule = PUBS_DATA['rules'][participant['current_pub']]
+        
+        st.subheader(f"Current Pub: {current_pub}")
+        st.info(f"Rule: {current_rule}")
+        
+        if st.button("Mark Current Pub as Complete", type="primary"):
+            participant['completed_pubs'].append(current_pub)
+            participant['current_pub'] += 1
+            participant['points'] += 100
+            save_data(st.session_state.data)
+            check_achievements(name)
+            st.rerun()
+    else:
+        st.success("🎉 Congratulations! You've completed the Belfast 12 Pubs of Christmas! 🎉")
 
-st.markdown("""
----
-For any questions or issues, please contact: mark.kirkpatrick@aecom.com
-""")
+def show_map():
+    """Display interactive map"""
+    st.header("Pub Route Map")
+    
+    m = folium.Map(
+        location=[54.595733, -5.930294],
+        zoom_start=15,
+        tiles='CartoDB positron'
+    )
+    
+    # Add markers and route
+    for i, (name, lat, lon) in enumerate(zip(
+        PUBS_DATA['name'],
+        PUBS_DATA['latitude'],
+        PUBS_DATA['longitude']
+    )):
+        # Determine marker color based on completion
+        color = 'green' if name in st.session_state.data['participants'][st.session_state.current_user]['completed_pubs'] else 'red'
+        
+        popup_text = f"""
+            <b>{i+1}. {name}</b><br>
+            Rule: {PUBS_DATA['rules'][i]}
+        """
+        
+        folium.Marker(
+            [lat, lon],
+            popup=popup_text,
+            icon=folium.Icon(color=color)
+        ).add_to(m)
+        
+        # Connect pubs with lines
+        if i > 0:
+            points = [
+                [PUBS_DATA['latitude'][i-1], PUBS_DATA['longitude'][i-1]],
+                [lat, lon]
+            ]
+            folium.PolyLine(
+                points,
+                weight=2,
+                color='blue',
+                opacity=0.8
+            ).add_to(m)
+    
+    st_folium(m)
 
-# Add a download button for the predictions
-csv = current_predictions.to_csv(index=False)
-st.download_button(
-    label="Download Predictions CSV",
-    data=csv,
-    file_name='predictions.csv',
-    mime='text/csv'
-)
+def add_punishment(name):
+    """Record a punishment"""
+    current_pub = PUBS_DATA['name'][st.session_state.data['participants'][name]['current_pub']]
+    punishment = random.choice(PUNISHMENTS)
+    
+    st.session_state.data['punishments'].append({
+        'time': datetime.now().isoformat(),
+        'name': name,
+        'pub': current_pub,
+        'punishment': punishment
+    })
+    
+    st.session_state.data['participants'][name]['rule_breaks'] += 1
+    save_data(st.session_state.data)
+    check_achievements(name)
+    
+    return punishment
+
+def show_punishment_wheel():
+    """Display punishment wheel"""
+    st.header("Rule Breaker's Wheel of Punishment")
+    
+    if st.button("Spin the Wheel", type="primary"):
+        with st.spinner("Spinning the wheel..."):
+            time.sleep(1.5)
+        punishment = add_punishment(st.session_state.current_user)
+        st.snow()
+        st.success(f"Your punishment is: {punishment}")
+
+def show_leaderboard():
+    """Display leaderboard"""
+    st.header("🏆 Leaderboard")
+    
+    data = []
+    for name, stats in st.session_state.data['participants'].items():
+        data.append({
+            'Name': name,
+            'Pubs Completed': len(stats['completed_pubs']),
+            'Points': stats['points'],
+            'Achievements': len(stats.get('achievements', [])),
+            'Rule Breaks': stats['rule_breaks']
+        })
+    
+    df = pd.DataFrame(data)
+    df = df.sort_values(['Points', 'Pubs Completed'], ascending=[False, False])
+    st.dataframe(df, use_container_width=True)
+
+def main():
+    st.title("🎄 Belfast 12 Pubs of Christmas 🍺")
+    
+    # Show name entry modal if no user selected
+    name_entry_modal()
+    
+    if st.session_state.current_user:
+        tabs = st.tabs([
+            "📊 My Progress",
+            "🏆 Achievements",
+            "🗺️ Map",
+            "👥 Leaderboard",
+            "🎯 Punishment Wheel"
+        ])
+        
+        with tabs[0]:
+            show_progress(st.session_state.current_user)
+        
+        with tabs[1]:
+            show_achievements(st.session_state.current_user)
+        
+        with tabs[2]:
+            show_map()
+        
+        with tabs[3]:
+            show_leaderboard()
+        
+        with tabs[4]:
+            show_punishment_wheel()
+        
+        # Refresh button in sidebar
+        if st.sidebar.button("Refresh Data"):
+            st.cache_data.clear()
+            st.session_state.data = load_data()
+            st.rerun()
+
+if __name__ == "__main__":
+    main()
